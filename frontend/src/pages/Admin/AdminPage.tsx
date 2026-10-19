@@ -1,0 +1,168 @@
+﻿/**
+ * 관리자가 사용자·판매자 신청·주문·상품·딜·문의·콘텐츠·픽업·감사 로그를 운영하는 화면입니다.
+ * 모든 변경은 사유 입력과 서버의 admin 권한 재검증을 거쳐 감사 로그에 기록됩니다.
+ */
+import { LoaderCircle, PackageCheck, RefreshCw, Send, ShieldCheck } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { DashboardShell } from "@/shared/layout/DashboardShell";
+import { StatusBadge } from "@/shared/components/StatusBadge";
+import { closePickupLocation, closePickupSlot, createPickupLocation, createPickupSlot, getAdminDashboard, getAdminInquiries, getAdminItems, getAdminOrders, getAdminRestockRequests, getAdminResearch, getAdminUsers, getSellerApplications, moderateContent, moderateDeal, moderateProduct, replyAdminInquiry, reviewSellerApplication, updateAdminInquiry, updateAdminUser, updateFulfillmentStatus, updatePickupLocation, updatePickupSlot, type Inquiry, type Order, type RawRecord } from "@/lib/api";
+import { formatPrice } from "@/shared/catalog";
+
+type StatPeriod = "week" | "month" | "year";
+const startOfWeek = (input: Date) => { const d = new Date(input); const day = d.getDay(); d.setDate(d.getDate() + ((day === 0 ? -6 : 1) - day)); d.setHours(0, 0, 0, 0); return d; };
+const bucketLabel = (iso: string, period: StatPeriod) => { const d = new Date(iso); if (period === "year") return `${d.getFullYear()}년`; if (period === "month") return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}`; const monday = startOfWeek(d); return `${monday.getMonth() + 1}/${monday.getDate()}주`; };
+
+const info: Record<string, [string, string]> = {
+  "/admin": ["운영 현황", "핵심 리소스와 처리 대기량을 실시간으로 집계합니다."], "/admin/orders": ["주문 운영", "전체 주문과 판매자별 fulfillment 단계를 확인·변경합니다."], "/admin/users": ["사용자 관리", "역할과 계정 정지 상태를 변경합니다."], "/admin/sellers": ["판매자 신청", "입점 신청을 승인하거나 사유와 함께 반려합니다."], "/admin/products": ["상품·딜 관리", "상품 검수와 타임딜 활성화·종료를 운영합니다."], "/admin/inquiries": ["문의 관리", "문의 배정·우선순위·상태·답변을 관리합니다."], "/admin/reviews": ["리뷰 관리", "리뷰 노출을 숨기거나 복구합니다."], "/admin/community": ["커뮤니티 관리", "게시글과 신고를 처리합니다."], "/admin/pickups": ["픽업 운영", "장소·슬롯을 생성·수정·비활성화합니다."], "/admin/audit-logs": ["감사 로그", "운영 변경의 actor·대상·사유를 조회합니다."], "/admin/error-logs": ["에러 로그", "백엔드 미처리 예외와 프론트 런타임 에러를 최근 순으로 확인합니다."], "/admin/research": ["카테고리 통계", "상품 수와 평균 정상가를 현재 DB 스냅샷으로 분석합니다."], "/admin/restock-requests": ["재입고 요청", "고객이 보낸 재입고 요청과 판매자 답변 현황을 확인합니다."],
+};
+const str = (item: RawRecord, key: string) => String(item[key] ?? ""); const num = (item: RawRecord, key: string) => Number(item[key] ?? 0); const date = (input?: string) => input ? new Date(input).toLocaleString("ko-KR") : "-";
+const statusLabel: Record<string, string> = { pending: "접수", confirmed: "확인", ready: "픽업 준비", completed: "완료", cancelled: "취소", active: "활성", draft: "초안", ended: "종료", rejected: "반려", hidden: "숨김", visible: "공개", open: "접수", resolved: "처리", dismissed: "기각" };
+const nextStatus: Record<string, "confirmed" | "ready" | "completed" | undefined> = { pending: "confirmed", confirmed: "ready", ready: "completed" };
+function Feedback({ error, notice }: { error: string | null; notice: string | null }) { return <>{notice && <div className="order-notice">{notice}</div>}{error && <div className="order-error" role="alert">{error}</div>}</>; }
+function Loading({ text }: { text: string }) { return <div className="order-loading"><LoaderCircle className="spin-icon" /> {text}</div>; }
+function Empty({ text }: { text: string }) { return <div className="empty-state compact-empty"><PackageCheck size={30} /><h3>{text}</h3></div>; }
+const askReason = (label: string) => { const reason = window.prompt(`${label} 사유를 2자 이상 입력하세요.`)?.trim() ?? ""; return reason.length >= 2 ? reason : null; };
+
+function DashboardPanel() {
+  const [data, setData] = useState<Record<string, number> | null>(null); const [orders, setOrders] = useState<Order[]>([]); const [error, setError] = useState<string | null>(null); const [period, setPeriod] = useState<StatPeriod>("week");
+  useEffect(() => {
+    void getAdminDashboard().then((result) => result.ok ? setData(result.data?.dashboard ?? null) : setError(result.error?.message ?? "운영 현황을 집계하지 못했습니다."));
+    void getAdminOrders().then((result) => { if (result.ok) setOrders(result.data?.orders ?? []); });
+  }, []);
+  const trend = useMemo(() => {
+    const byBucket = new Map<string, { revenue: number; orders: number }>();
+    for (const order of orders) {
+      if (!order.createdAt) continue;
+      const key = bucketLabel(order.createdAt, period);
+      const bucket = byBucket.get(key) ?? { revenue: 0, orders: 0 };
+      bucket.revenue += order.totalAmount; bucket.orders += 1;
+      byBucket.set(key, bucket);
+    }
+    return Array.from(byBucket.entries()).map(([label, value]) => ({ label, ...value }));
+  }, [orders, period]);
+  if (!data && !error) return <Loading text="관리자 운영 지표를 집계하는 중입니다." />;
+  return <>
+    <Feedback error={error} notice={null} />
+    <div className="metric-grid">{Object.entries(data ?? {}).map(([key, value]) => <article key={key}><span><ShieldCheck /></span><p>{key}</p><strong>{value}</strong></article>)}</div>
+    <section className="dashboard-panel spaced-panel">
+      <div className="panel-title-row">
+        <div><p>REVENUE TREND</p><h2>매출·주문 추이</h2></div>
+        <div className="stat-toggle">{(["week", "month", "year"] as const).map((value) => <button key={value} type="button" className={period === value ? "active" : ""} onClick={() => setPeriod(value)}>{value === "week" ? "주" : value === "month" ? "달" : "년"}</button>)}</div>
+      </div>
+      {trend.length === 0 ? <Empty text="집계할 주문 데이터가 없습니다." /> : <ResponsiveContainer width="100%" height={260}><AreaChart data={trend}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="label" fontSize={11} stroke="var(--muted-foreground)" /><YAxis yAxisId="revenue" fontSize={11} stroke="var(--muted-foreground)" width={90} tickFormatter={(value: number) => formatPrice(value)} /><YAxis yAxisId="orders" orientation="right" fontSize={11} stroke="var(--chart-3)" width={50} allowDecimals={false} /><Tooltip formatter={(value, name) => name === "매출" ? formatPrice(Number(value)) : `${Number(value)}건`} contentStyle={{ fontSize: 12, borderRadius: 8 }} /><Area yAxisId="revenue" type="monotone" dataKey="revenue" name="매출" stroke="var(--primary)" fill="var(--primary)" fillOpacity={0.16} /><Area yAxisId="orders" type="monotone" dataKey="orders" name="주문 수" stroke="var(--chart-3)" fill="var(--chart-3)" fillOpacity={0.08} /></AreaChart></ResponsiveContainer>}
+    </section>
+  </>;
+}
+
+function OrdersPanel() {
+  const [items, setItems] = useState<Order[]>([]); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState<string | null>(null); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
+  const load = useCallback(async () => { setLoading(true); const result = await getAdminOrders(); setLoading(false); if (result.ok) setItems(result.data?.orders ?? []); else setError(result.error?.message ?? "주문을 조회하지 못했습니다."); }, []); useEffect(() => { void load(); }, [load]);
+  const advance = async (group: RawRecord) => { const next = nextStatus[str(group, "status")]; if (!next) return; setBusy(str(group, "id")); const result = await updateFulfillmentStatus(str(group, "id"), next, undefined, true); setBusy(null); if (!result.ok) return setError(result.error?.message ?? "상태를 변경하지 못했습니다."); setNotice("fulfillment 상태를 변경했습니다."); await load(); };
+  if (loading) return <Loading text="전체 주문을 불러오는 중입니다." />;
+  return <section className="dashboard-panel"><div className="panel-title-row"><div><p>ORDERS & FULFILLMENTS</p><h2>전체 주문 운영</h2></div><StatusBadge type="live">멀티셀러</StatusBadge></div><Feedback error={error} notice={notice} />{items.length === 0 ? <Empty text="표시할 주문이 없습니다." /> : <div className="operation-list">{items.map((order) => <article className="operation-card" key={order.id}><header><div><strong>{order.orderNumber}</strong><small>{date(order.createdAt)} · {formatPrice(order.totalAmount)} · {order.paymentMethod}</small></div><StatusBadge type="ready">{statusLabel[order.orderStatus] ?? order.orderStatus}</StatusBadge></header><div className="operation-list">{(order.fulfillment_groups ?? []).map((group) => <div className="compact-row" key={str(group, "id")}><span>판매자 {str(group, "seller_id")} · {formatPrice(num(group, "subtotal"))}</span><strong>{statusLabel[str(group, "status")] ?? str(group, "status")}</strong>{nextStatus[str(group, "status")] && <button disabled={busy === str(group, "id")} onClick={() => void advance(group)}>{statusLabel[nextStatus[str(group, "status")]!]}</button>}</div>)}</div></article>)}</div>}</section>;
+}
+
+function UsersPanel() {
+  const [items, setItems] = useState<RawRecord[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null); const [busy, setBusy] = useState<string | null>(null);
+  const load = useCallback(async () => { setLoading(true); const result = await getAdminUsers(); setLoading(false); if (result.ok) setItems(result.data?.users ?? []); else setError(result.error?.message ?? "사용자를 조회하지 못했습니다."); }, []); useEffect(() => { void load(); }, [load]);
+  const save = async (item: RawRecord, patch: { role?: string; isSuspended?: boolean }, label: string) => { const reason = askReason(label); if (!reason) return; setBusy(str(item, "id")); const result = await updateAdminUser(str(item, "id"), { ...patch, reason }); setBusy(null); if (!result.ok) return setError(result.error?.message ?? "사용자를 변경하지 못했습니다."); setNotice("사용자 계정을 변경했습니다."); await load(); };
+  if (loading) return <Loading text="사용자를 불러오는 중입니다." />;
+  return <section className="dashboard-panel"><div className="panel-title-row"><div><p>USERS</p><h2>역할·계정 상태</h2></div><button className="secondary-button" onClick={() => void load()}><RefreshCw size={15} /> 새로고침</button></div><Feedback error={error} notice={notice} />{items.length === 0 ? <Empty text="가입 사용자가 없습니다." /> : <div className="operation-list">{items.map((item) => <article className="compact-row" key={str(item, "id")}><span><b>{str(item, "name")}</b><small>{str(item, "email") || "이메일 없음"} · {str(item, "preferred_region") || "관심 지역 없음"}</small></span><select value={str(item, "role")} disabled={busy === str(item, "id")} onChange={(event) => void save(item, { role: event.target.value }, "역할 변경")}><option value="user">고객</option><option value="seller">판매자</option><option value="admin">관리자</option></select><button disabled={busy === str(item, "id")} onClick={() => void save(item, { isSuspended: !item.is_suspended }, item.is_suspended ? "계정 정지 해제" : "계정 정지")}>{item.is_suspended ? "정지 해제" : "계정 정지"}</button></article>)}</div>}</section>;
+}
+
+function SellersPanel() {
+  const [items, setItems] = useState<RawRecord[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
+  const load = useCallback(async () => { setLoading(true); const result = await getSellerApplications(); setLoading(false); if (result.ok) setItems(result.data?.applications ?? []); else setError(result.error?.message ?? "판매자 신청을 조회하지 못했습니다."); }, []); useEffect(() => { void load(); }, [load]);
+  const review = async (id: string, status: "approved" | "rejected") => { const reason = askReason(status === "approved" ? "판매자 승인" : "판매자 반려"); if (!reason) return; const result = await reviewSellerApplication(id, status, reason); if (!result.ok) return setError(result.error?.message ?? "심사 결과를 저장하지 못했습니다."); setNotice("판매자 심사 결과를 저장했습니다."); await load(); };
+  if (loading) return <Loading text="판매자 신청을 불러오는 중입니다." />;
+  return <section className="dashboard-panel"><div className="panel-title-row"><div><p>SELLER APPLICATIONS</p><h2>입점 심사</h2></div><StatusBadge type="live">역할 변경 연동</StatusBadge></div><Feedback error={error} notice={notice} />{items.length === 0 ? <Empty text="판매자 신청이 없습니다." /> : <div className="operation-list">{items.map((item) => <article className="operation-card" key={str(item, "id")}><header><div><strong>{str(item, "business_name")}</strong><small>사업자번호 {str(item, "business_number")}</small></div><StatusBadge type="ready">{str(item, "status")}</StatusBadge></header>{str(item, "status") === "pending" && <div className="action-row"><button onClick={() => void review(str(item, "id"), "approved")}>승인</button><button onClick={() => void review(str(item, "id"), "rejected")}>반려</button></div>}</article>)}</div>}</section>;
+}
+
+function ProductsDealsPanel() {
+  const [products, setProducts] = useState<RawRecord[]>([]); const [deals, setDeals] = useState<RawRecord[]>([]); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
+  const load = useCallback(async () => { const [p, d] = await Promise.all([getAdminItems("products"), getAdminItems("deals")]); if (!p.ok || !d.ok) return setError("상품·딜을 불러오지 못했습니다."); setProducts(p.data?.items ?? []); setDeals(d.data?.items ?? []); }, []); useEffect(() => { void load(); }, [load]);
+  const productAction = async (id: string, status: "active" | "rejected" | "hidden") => { const reason = askReason("상품 moderation"); if (!reason) return; const result = await moderateProduct(id, status, reason); if (!result.ok) return setError(result.error?.message ?? "상품 상태를 변경하지 못했습니다."); setNotice("상품 상태를 변경했습니다."); await load(); };
+  const dealAction = async (id: string, status: "draft" | "active" | "ended" | "cancelled") => { const reason = askReason("딜 moderation"); if (!reason) return; const result = await moderateDeal(id, status, reason); if (!result.ok) return setError(result.error?.message ?? "딜 상태를 변경하지 못했습니다."); setNotice("딜 상태를 변경했습니다."); await load(); };
+  return <><Feedback error={error} notice={notice} /><section className="dashboard-panel"><div className="panel-title-row"><div><p>PRODUCT MODERATION</p><h2>상품 검수</h2></div><StatusBadge type="live">상태 변경</StatusBadge></div><div className="operation-list">{products.map((item) => <article className="compact-row" key={str(item, "id")}><span><b>{str(item, "name")}</b><small>{formatPrice(num(item, "regular_price"))}</small></span><strong>{statusLabel[str(item, "status")] ?? str(item, "status")}</strong><div className="action-row"><button onClick={() => void productAction(str(item, "id"), "active")}>승인</button><button onClick={() => void productAction(str(item, "id"), "rejected")}>반려</button><button onClick={() => void productAction(str(item, "id"), "hidden")}>숨김</button></div></article>)}</div></section><section className="dashboard-panel spaced-panel"><div className="panel-title-row"><div><p>DEAL MODERATION</p><h2>타임딜 운영</h2></div></div><div className="operation-list">{deals.map((item) => <article className="compact-row" key={str(item, "id")}><span>{str(item, "product_id")} · {formatPrice(num(item, "deal_price"))}</span><strong>{statusLabel[str(item, "status")]}</strong><div className="action-row"><button onClick={() => void dealAction(str(item, "id"), "active")}>활성화</button><button onClick={() => void dealAction(str(item, "id"), "ended")}>종료</button></div></article>)}</div></section></>;
+}
+
+function InquiriesPanel() {
+  const [items, setItems] = useState<Inquiry[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null); const [replies, setReplies] = useState<Record<string, string>>({});
+  const load = useCallback(async () => { setLoading(true); const result = await getAdminInquiries(); setLoading(false); if (result.ok) setItems(result.data?.inquiries ?? []); else setError(result.error?.message ?? "문의를 조회하지 못했습니다."); }, []); useEffect(() => { void load(); }, [load]);
+  if (loading) return <Loading text="전체 문의를 불러오는 중입니다." />;
+  const patch = async (id: string, input: { status?: string; priority?: string; assignedTo?: string | null }) => { const result = await updateAdminInquiry(id, input); if (!result.ok) return setError(result.error?.message ?? "문의를 변경하지 못했습니다."); setNotice("문의 처리 정보를 변경했습니다."); await load(); };
+  const reply = async (id: string) => { const message = replies[id]?.trim(); if (!message) return; const result = await replyAdminInquiry(id, message); if (!result.ok) return setError(result.error?.message ?? "답변을 저장하지 못했습니다."); setReplies({ ...replies, [id]: "" }); setNotice("고객에게 답변했습니다."); await load(); };
+  return <section className="dashboard-panel"><div className="panel-title-row"><div><p>INQUIRY OPERATIONS</p><h2>문의 처리</h2></div></div><Feedback error={error} notice={notice} />{items.length === 0 ? <Empty text="문의가 없습니다." /> : <div className="conversation-list">{items.map((item) => <article key={item.id}><header><strong>{item.subject}</strong><div className="action-row"><select value={item.priority} onChange={(event) => void patch(item.id, { priority: event.target.value })}><option value="low">낮음</option><option value="normal">보통</option><option value="high">높음</option><option value="urgent">긴급</option></select><select value={item.status} onChange={(event) => void patch(item.id, { status: event.target.value })}><option value="open">접수</option><option value="in_progress">처리 중</option><option value="answered">답변</option><option value="closed">종료</option></select></div></header><div className="message-list">{(item.inquiry_messages ?? []).map((message) => <p key={message.id}><span>{message.message}</span><small>{date(message.created_at)}</small></p>)}</div><div className="reply-row"><textarea value={replies[item.id] ?? ""} onChange={(event) => setReplies({ ...replies, [item.id]: event.target.value })} /><button className="primary-button" disabled={!replies[item.id]?.trim()} onClick={() => void reply(item.id)}><Send size={15} /> 답변</button></div></article>)}</div>}</section>;
+}
+
+function ModerationPanel({ community }: { community: boolean }) {
+  const [items, setItems] = useState<RawRecord[]>([]); const [reports, setReports] = useState<RawRecord[]>([]); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
+  const load = useCallback(async () => { const main = await getAdminItems(community ? "community" : "reviews"); const report = community ? await getAdminItems("community-reports") : null; if (!main.ok || (report && !report.ok)) return setError("관리 대상을 불러오지 못했습니다."); setItems(main.data?.items ?? []); setReports(report?.data?.items ?? []); }, [community]); useEffect(() => { void load(); }, [load]);
+  const action = async (resource: "reviews" | "community" | "reports", id: string, status: string) => { const reason = askReason("콘텐츠 moderation"); if (!reason) return; const result = await moderateContent(resource, id, status, reason); if (!result.ok) return setError(result.error?.message ?? "처리하지 못했습니다."); setNotice("moderation 결과를 저장했습니다."); await load(); };
+  return <section className="dashboard-panel"><div className="panel-title-row"><div><p>CONTENT MODERATION</p><h2>{community ? "게시글·신고" : "리뷰 노출"}</h2></div></div><Feedback error={error} notice={notice} /><div className="operation-list">{items.map((item) => <article className="compact-row" key={str(item, "id")}><span><b>{str(item, community ? "title" : "content")}</b><small>{str(item, "status")}</small></span><div className="action-row"><button onClick={() => void action(community ? "community" : "reviews", str(item, "id"), "hidden")}>숨김</button><button onClick={() => void action(community ? "community" : "reviews", str(item, "id"), community ? "visible" : "visible")}>복구</button></div></article>)}{reports.map((item) => <article className="compact-row" key={str(item, "id")}><span>신고: {str(item, "reason")}</span><div className="action-row"><button onClick={() => void action("reports", str(item, "id"), "resolved")}>처리</button><button onClick={() => void action("reports", str(item, "id"), "dismissed")}>기각</button></div></article>)}</div></section>;
+}
+
+function PickupsPanel() {
+  const [locations, setLocations] = useState<RawRecord[]>([]); const [slots, setSlots] = useState<RawRecord[]>([]); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
+  const load = useCallback(async () => { const [l, s] = await Promise.all([getAdminItems("pickup-locations"), getAdminItems("pickup-slots")]); if (!l.ok || !s.ok) return setError("픽업 정보를 불러오지 못했습니다."); setLocations(l.data?.items ?? []); setSlots(s.data?.items ?? []); }, []); useEffect(() => { void load(); }, [load]);
+  const addLocation = async () => { const name = window.prompt("장소명")?.trim(); const address = window.prompt("주소")?.trim(); if (!name || !address) return; const result = await createPickupLocation({ name, address, description: window.prompt("설명")?.trim() ?? "" }); if (!result.ok) return setError(result.error?.message ?? "장소를 추가하지 못했습니다."); setNotice("픽업 장소를 추가했습니다."); await load(); };
+  const addSlot = async () => { const locationId = window.prompt("장소 ID")?.trim(); const pickupDate = window.prompt("픽업 날짜 YYYY-MM-DD")?.trim(); const startTime = window.prompt("시작 시각 HH:MM")?.trim(); const endTime = window.prompt("종료 시각 HH:MM")?.trim(); const capacity = Number(window.prompt("정원")); if (!locationId || !pickupDate || !startTime || !endTime || !capacity) return; const pickupAt = new Date(`${pickupDate}T${startTime}:00+09:00`).toISOString(); const result = await createPickupSlot({ locationId, pickupDate, startTime, endTime, pickupAt, capacity }); if (!result.ok) return setError(result.error?.message ?? "슬롯을 추가하지 못했습니다."); setNotice("픽업 슬롯을 추가했습니다."); await load(); };
+  const toggleLocation = async (item: RawRecord) => { const reason = askReason("장소 활성 상태 변경"); if (!reason) return; const result = await updatePickupLocation(str(item, "id"), { isActive: !item.is_active, reason }); if (!result.ok) return setError(result.error?.message ?? "장소를 변경하지 못했습니다."); await load(); };
+  const closeLocation = async (id: string) => { const reason = askReason("장소 운영 종료"); if (!reason) return; const result = await closePickupLocation(id, reason); if (!result.ok) return setError(result.error?.message ?? "장소 운영을 종료하지 못했습니다."); await load(); };
+  const toggleSlot = async (item: RawRecord) => { const reason = askReason("슬롯 활성 상태 변경"); if (!reason) return; const result = await updatePickupSlot(str(item, "id"), { isActive: !item.is_active, reason }); if (!result.ok) return setError(result.error?.message ?? "슬롯을 변경하지 못했습니다."); await load(); };
+  const closeSlot = async (id: string) => { const reason = askReason("슬롯 운영 종료"); if (!reason) return; const result = await closePickupSlot(id, reason); if (!result.ok) return setError(result.error?.message ?? "슬롯 운영을 종료하지 못했습니다."); await load(); };
+  return <><Feedback error={error} notice={notice} /><section className="dashboard-panel"><div className="panel-title-row"><div><p>PICKUP LOCATIONS</p><h2>장소 운영</h2></div><button className="primary-button" onClick={() => void addLocation()}>장소 추가</button></div><div className="operation-list">{locations.map((item) => <article className="compact-row" key={str(item, "id")}><span><b>{str(item, "name")}</b><small>{str(item, "address")} · ID {str(item, "id")}</small></span><div className="action-row"><button onClick={() => void toggleLocation(item)}>{item.is_active ? "비활성화" : "활성화"}</button><button onClick={() => void closeLocation(str(item, "id"))}>운영 종료</button></div></article>)}</div></section><section className="dashboard-panel spaced-panel"><div className="panel-title-row"><div><p>PICKUP SLOTS</p><h2>슬롯 운영</h2></div><button className="primary-button" onClick={() => void addSlot()}>슬롯 추가</button></div><div className="operation-list">{slots.map((item) => <article className="compact-row" key={str(item, "id")}><span>{str(item, "pickup_date")} {str(item, "start_time").slice(0, 5)}–{str(item, "end_time").slice(0, 5)} · {num(item, "reserved_count")}/{num(item, "capacity")}</span><div className="action-row"><button onClick={() => void toggleSlot(item)}>{item.is_active ? "비활성화" : "활성화"}</button><button onClick={() => void closeSlot(str(item, "id"))}>운영 종료</button></div></article>)}</div></section></>;
+}
+
+function AuditPanel() {
+  const [items, setItems] = useState<RawRecord[]>([]); const [error, setError] = useState<string | null>(null); useEffect(() => { void getAdminItems("audit-logs").then((result) => result.ok ? setItems(result.data?.items ?? []) : setError(result.error?.message ?? "감사 로그를 조회하지 못했습니다.")); }, []);
+  return <section className="dashboard-panel"><div className="panel-title-row"><div><p>AUDIT LOGS</p><h2>운영 변경 이력</h2></div></div><Feedback error={error} notice={null} /><div className="operation-list">{items.map((item) => <article className="compact-row" key={str(item, "id")}><span><b>{str(item, "action")}</b><small>{str(item, "entity_type")} · {str(item, "entity_id")}</small></span><strong>{str(item, "reason")}</strong><small>{date(str(item, "created_at"))}</small></article>)}</div></section>;
+}
+function ErrorLogsPanel() {
+  const [items, setItems] = useState<RawRecord[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => { setLoading(true); const result = await getAdminItems("error-logs"); setLoading(false); if (result.ok) setItems(result.data?.items ?? []); else setError(result.error?.message ?? "에러 로그를 조회하지 못했습니다."); }, []);
+  useEffect(() => { void load(); }, [load]);
+  if (loading) return <Loading text="에러 로그를 불러오는 중입니다." />;
+  return <section className="dashboard-panel">
+    <div className="panel-title-row"><div><p>ERROR MONITORING</p><h2>에러 로그</h2></div><button className="secondary-button" onClick={() => void load()}><RefreshCw size={15} /> 새로고침</button></div>
+    <Feedback error={error} notice={null} />
+    {items.length === 0 ? <Empty text="최근 발생한 에러가 없습니다." /> : <div className="operation-list">{items.map((item) => (
+      <article className="operation-card" key={str(item, "id")}>
+        <header>
+          <div>
+            <strong>{str(item, "message") || "(메시지 없음)"}</strong>
+            <small>{str(item, "source") === "frontend" ? "프론트엔드" : "백엔드"}{str(item, "path") ? ` · ${str(item, "method") ? `${str(item, "method")} ` : ""}${str(item, "path")}` : ""}{str(item, "status_code") ? ` · ${str(item, "status_code")}` : ""}</small>
+          </div>
+          <StatusBadge type={str(item, "level") === "warn" ? "ready" : "live"}>{str(item, "level") === "warn" ? "경고" : "에러"}</StatusBadge>
+        </header>
+        <small className="muted-copy">{date(str(item, "created_at"))}{str(item, "user_id") ? ` · 사용자 ${str(item, "user_id").slice(0, 8)}` : ""}</small>
+        {str(item, "stack") && <pre style={{ marginTop: 8, padding: 10, background: "var(--muted)", borderRadius: 6, fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 160, overflowY: "auto" }}>{str(item, "stack")}</pre>}
+      </article>
+    ))}</div>}
+  </section>;
+}
+function ResearchPanel() {
+  const [items, setItems] = useState<Array<{ category: string; productCount: number; averagePrice: number }>>([]); const [error, setError] = useState<string | null>(null);
+  useEffect(() => { void getAdminResearch().then((result) => result.ok ? setItems(result.data?.research.categories ?? []) : setError(result.error?.message ?? "통계를 생성하지 못했습니다.")); }, []);
+  return <section className="dashboard-panel">
+    <div className="panel-title-row"><div><p>CATEGORY SNAPSHOT</p><h2>카테고리 통계</h2></div><StatusBadge type="live">DB 스냅샷</StatusBadge></div>
+    <Feedback error={error} notice={null} />
+    {items.length === 0 ? <Empty text="집계할 상품 데이터가 없습니다." /> : <ResponsiveContainer width="100%" height={280}><BarChart data={items}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" /><XAxis dataKey="category" fontSize={11} stroke="var(--muted-foreground)" /><YAxis yAxisId="count" fontSize={11} stroke="var(--muted-foreground)" allowDecimals={false} width={40} /><YAxis yAxisId="price" orientation="right" fontSize={11} stroke="var(--chart-3)" width={90} tickFormatter={(value: number) => formatPrice(value)} /><Tooltip formatter={(value, name) => name === "평균 정상가" ? formatPrice(Number(value)) : `${Number(value)}개`} contentStyle={{ fontSize: 12, borderRadius: 8 }} /><Bar yAxisId="count" dataKey="productCount" name="상품 수" fill="var(--primary)" radius={[4, 4, 0, 0]} /><Bar yAxisId="price" dataKey="averagePrice" name="평균 정상가" fill="var(--chart-3)" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer>}
+    <div className="operation-grid spaced-panel">{items.map((item) => <article key={item.category}><strong>{item.category}</strong><span>상품 {item.productCount}개</span><small>평균 {formatPrice(item.averagePrice)}</small></article>)}</div>
+  </section>;
+}
+function RestockRequestsAdminPanel() {
+  const [items, setItems] = useState<RawRecord[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => { setLoading(true); const result = await getAdminRestockRequests(); setLoading(false); if (result.ok) setItems(result.data?.requests ?? []); else setError(result.error?.message ?? "재입고 요청을 조회하지 못했습니다."); }, []); useEffect(() => { void load(); }, [load]);
+  if (loading) return <Loading text="재입고 요청을 불러오는 중입니다." />;
+  return <section className="dashboard-panel"><div className="panel-title-row"><div><p>RESTOCK REQUESTS</p><h2>재입고 요청 현황</h2></div><button className="secondary-button" onClick={() => void load()}><RefreshCw size={15} /> 새로고침</button></div><Feedback error={error} notice={null} />{items.length === 0 ? <Empty text="접수된 재입고 요청이 없습니다." /> : <div className="operation-list">{items.map((item) => { const product = (item.products ?? {}) as RawRecord; const requester = (item.profiles ?? {}) as RawRecord; const answered = str(item, "status") === "answered"; return <article className="operation-card" key={str(item, "id")}><header><div><strong>{str(product, "name") || "상품"}</strong><small>{str(requester, "name") || "고객"} · {date(str(item, "created_at"))}</small></div><StatusBadge type={answered ? "live" : "ready"}>{answered ? "판매자 답변 완료" : "답변 대기 중"}</StatusBadge></header>{str(item, "message") && <p className="muted-copy">{str(item, "message")}</p>}{answered && <div className="compact-row"><span><b>판매자 답변</b><small>{str(item, "seller_reply")}</small></span>{str(item, "expected_restock_date") && <strong>예상 입고일 {str(item, "expected_restock_date")}</strong>}</div>}</article>; })}</div>}</section>;
+}
+
+export default function AdminPage() {
+  const path = useLocation().pathname; const [title, description] = info[path] ?? info["/admin"];
+  const panels: Record<string, React.ReactNode> = { "/admin": <DashboardPanel />, "/admin/orders": <OrdersPanel />, "/admin/users": <UsersPanel />, "/admin/sellers": <SellersPanel />, "/admin/products": <ProductsDealsPanel />, "/admin/inquiries": <InquiriesPanel />, "/admin/reviews": <ModerationPanel community={false} />, "/admin/community": <ModerationPanel community />, "/admin/pickups": <PickupsPanel />, "/admin/audit-logs": <AuditPanel />, "/admin/error-logs": <ErrorLogsPanel />, "/admin/research": <ResearchPanel />, "/admin/restock-requests": <RestockRequestsAdminPanel /> };
+  return <DashboardShell type="admin"><div className="dashboard-page-heading"><div><p>관리자 기능</p><h1>{title}</h1><span>{description}</span></div><StatusBadge type="live">관리자 API 연결</StatusBadge></div><div className="dashboard-content">{panels[path] ?? panels["/admin"]}</div></DashboardShell>;
+}
