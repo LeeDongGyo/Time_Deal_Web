@@ -267,6 +267,12 @@ export function StoreHeader({ activeTheme }: { activeTheme?: ThemeKey }) {
           </>
         ) : (
           <>
+            {session?.user && (
+              <>
+                <span style={{ color: "#16a34a", fontWeight: 700 }}>● 체험 사용자 로그인 중</span>
+                <span style={{ width: 1, height: 13, background: TOKENS.borderDivider, margin: "0 10px", display: "inline-block" }} />
+              </>
+            )}
             <span
               style={{ cursor: "pointer", color: TOKENS.primaryOrange, fontWeight: 400 }}
               onClick={() => navigate("/auth?mode=signup")}
