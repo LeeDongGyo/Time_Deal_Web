@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { authClient, isGuestEmail, signOutFully } from "@/lib/auth";
+import { authClient, signOutFully } from "@/lib/auth";
 import { useLocationStore } from "@/shared/location/LocationContext";
 import { getGuestCartCount } from "@/lib/guest-cart";
 import { CATEGORY_GROUPS, THEME_ROUTE, type ThemeKey } from "@/shared/categoryData";
@@ -241,7 +241,7 @@ export function StoreHeader({ activeTheme }: { activeTheme?: ThemeKey }) {
           boxSizing: "border-box",
         }}
       >
-        {session?.user && !isGuestEmail(session.user.email) ? (
+        {session?.user ? (
           <>
             <span
               style={{ cursor: "pointer", color: TOKENS.primaryOrange, fontWeight: 500 }}
@@ -267,12 +267,6 @@ export function StoreHeader({ activeTheme }: { activeTheme?: ThemeKey }) {
           </>
         ) : (
           <>
-            {session?.user && (
-              <>
-                <span style={{ color: "#16a34a", fontWeight: 700 }}>● 체험 사용자 로그인 중</span>
-                <span style={{ width: 1, height: 13, background: TOKENS.borderDivider, margin: "0 10px", display: "inline-block" }} />
-              </>
-            )}
             <span
               style={{ cursor: "pointer", color: TOKENS.primaryOrange, fontWeight: 400 }}
               onClick={() => navigate("/auth?mode=signup")}
