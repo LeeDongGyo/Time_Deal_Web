@@ -60,13 +60,21 @@ async function createGuestSession(): Promise<boolean> {
     return true;
   } catch { return false; }
 }
+function startGuestRefresh() {
+  if (guestRefreshTimer) return;
+  // 액세스 토큰(약 1시간)이 끊기지 않도록, 아직 체험 계정으로 쓰는 중일 때만 주기적으로 다시 로그인합니다.
+  guestRefreshTimer = setInterval(() => { const saved = readGuestCred(); if (saved && isGuestEmail(cachedSession?.user.email)) void authRequest("/sign-in", saved); }, 45 * 60 * 1000);
+}
+// 로그인 화면의 "체험 사용자로 시작" 버튼용: 체험 모드 환경변수와 상관없이 임시 계정을 만들어 바로 로그인합니다(백엔드 GUEST_MODE는 필요).
+export async function loginAsGuest(): Promise<boolean> {
+  const ok = await createGuestSession();
+  if (ok) startGuestRefresh();
+  return ok;
+}
 export async function ensureGuestSession(): Promise<void> {
   if (!guestModeEnabled) return;
   for (let waited = 0; pending && waited < 5000; waited += 50) await new Promise((resolve) => setTimeout(resolve, 50));
-  if (!guestRefreshTimer) {
-    // 액세스 토큰(약 1시간)이 끊기지 않도록, 아직 체험 계정으로 쓰는 중일 때만 주기적으로 다시 로그인합니다.
-    guestRefreshTimer = setInterval(() => { const saved = readGuestCred(); if (saved && isGuestEmail(cachedSession?.user.email)) void authRequest("/sign-in", saved); }, 45 * 60 * 1000);
-  }
+  startGuestRefresh();
   if (cachedSession) return;
   const cred = readGuestCred();
   if (cred) { const result = await authRequest("/sign-in", cred); if (!result.error) return; }
