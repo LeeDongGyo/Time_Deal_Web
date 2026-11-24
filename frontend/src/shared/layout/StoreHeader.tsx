@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { authClient, signOutFully } from "@/lib/auth";
+import { authClient, isGuestEmail, loginAsGuest, signOutFully } from "@/lib/auth";
 import { useLocationStore } from "@/shared/location/LocationContext";
 import { getGuestCartCount } from "@/lib/guest-cart";
 import { CATEGORY_GROUPS, THEME_ROUTE, type ThemeKey } from "@/shared/categoryData";
@@ -241,6 +241,19 @@ export function StoreHeader({ activeTheme }: { activeTheme?: ThemeKey }) {
           boxSizing: "border-box",
         }}
       >
+        {(!session?.user || isGuestEmail(session.user.email)) && (
+          <>
+            {([["seller", "테스트 로그인"], ["admin", "관리자 테스트"]] as const).map(([role, label]) => (
+              <span
+                key={role}
+                style={{ cursor: "pointer", color: "#16a34a", fontWeight: 700, marginRight: 10 }}
+                onClick={() => void loginAsGuest(role).then((ok) => { if (ok) navigate(role === "admin" ? "/admin" : "/"); else toast.error(role === "admin" ? "관리자 테스트 로그인 실패: 백엔드 GUEST_MODE·GUEST_ADMIN_MODE 설정을 확인하세요." : "테스트 로그인 실패: 백엔드 GUEST_MODE 설정을 확인하세요."); })}
+              >
+                {label}
+              </span>
+            ))}
+          </>
+        )}
         {session?.user ? (
           <>
             <span
@@ -963,27 +976,6 @@ export function StoreHeader({ activeTheme }: { activeTheme?: ThemeKey }) {
               })}
             </ul>
           </div>
-          <button
-            type="button"
-            onClick={() => navigate("/impact")}
-            style={{
-              border: `1.5px solid ${TOKENS.primaryOrange}`,
-              borderRadius: 24,
-              padding: "7px 16px",
-              fontSize: 13,
-              fontWeight: 700,
-              color: "#000000",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              flexShrink: 0,
-              background: TOKENS.primaryLight,
-              marginLeft: 16,
-              cursor: "pointer",
-            }}
-          >
-            우리의 임팩트
-          </button>
         </div>
       </nav>
 

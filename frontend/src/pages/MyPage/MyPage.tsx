@@ -210,7 +210,6 @@ function ProfilePanel({ onName }: { onName: (name: string) => void }) {
           <p>PROFILE</p>
           <h2>회원 정보</h2>
         </div>
-        <StatusBadge type="live">프로필 API</StatusBadge>
       </div>
       <Feedback error={error} notice={notice} />
       <div className="profile-grid compact-profile">
@@ -290,7 +289,6 @@ function ImpactPanel() {
           <p>MY IMPACT</p>
           <h2>나의 절약 리포트</h2>
         </div>
-        <StatusBadge type="live">수령 완료 기준</StatusBadge>
       </div>
       <Feedback error={error} notice={null} />
       {!stats || stats.orderCount === 0 ? (
@@ -455,7 +453,6 @@ function ParticipationsPanel() {
           <p>PARTICIPATIONS</p>
           <h2>참여 딜</h2>
         </div>
-        <StatusBadge type="live">주문 기반</StatusBadge>
       </div>
       <Feedback error={error} notice={null} />
       {items.length === 0 ? (
@@ -784,7 +781,6 @@ function OrdersPanel() {
           <p>MY ORDERS</p>
           <h2>주문 내역</h2>
         </div>
-        <StatusBadge type="live">주문 API</StatusBadge>
       </div>
       <Feedback error={error} notice={notice} />
       {items.length === 0 ? (
@@ -886,7 +882,6 @@ function RestockRequestsPanel() {
           <p>RESTOCK REQUESTS</p>
           <h2>재입고 요청</h2>
         </div>
-        <StatusBadge type="live">주문 기반</StatusBadge>
       </div>
       <Feedback error={error} notice={notice} />
       {eligibleProducts.length === 0 ? (
@@ -1519,7 +1514,6 @@ export default function MyPage() {
               <h1>{title}</h1>
               <span>{description}</span>
             </div>
-            <StatusBadge type="live">안전한 보안 연결</StatusBadge>
           </div>
           {panels[path] ?? panels["/mypage"]}
         </div>

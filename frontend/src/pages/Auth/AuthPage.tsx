@@ -13,7 +13,6 @@ import { isSupabaseAuthConfigured, startKakaoAuth, startNaverAuth } from "@/lib/
 import { normalizeApiError, readResponseBody } from "@/lib/api-error";
 import { translateAuthErrorMessage } from "@/lib/auth-error";
 import { useTheme } from "@/shared/theme/ThemeProvider";
-import { StatusBadge } from "@/shared/components/StatusBadge";
 
 type Mode = "signin" | "signup" | "forgot" | "otp";
 
@@ -136,7 +135,7 @@ export default function AuthPage() {
         <div className="auth-card">
           <Link to="/" className="brand auth-brand" aria-label="타임딜 홈"><img src="/images/deal-logo.png" alt="" className="brand-logo" /></Link>
           {verificationEmail ? (
-            <><div className="auth-heading"><StatusBadge type="live">이메일 인증</StatusBadge><h2>인증 코드를 입력해 주세요.</h2><p>{verificationEmail}로 보낸 6자리 코드입니다.</p></div><form onSubmit={onVerify}><label><span>인증 코드</span><div className="input-wrap"><Mail /><input inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={verificationCode} onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))} required /></div></label><button className="primary-button full" disabled={submitting || verificationCode.length !== 6}>{submitting ? "확인 중..." : "이메일 인증 완료"}</button><button className="text-button" type="button" disabled={submitting || resendWaitSeconds > 0} onClick={() => void sendVerificationCode().then(() => toast.success("인증 코드를 다시 보냈습니다.")).catch((error: unknown) => toast.error(error instanceof Error ? translateAuthErrorMessage(error.message, "재전송에 실패했습니다.") : "재전송에 실패했습니다."))}>{resendWaitSeconds > 0 ? `${resendWaitSeconds}초 후 재전송` : "인증 코드 다시 받기"}</button></form></>
+            <><div className="auth-heading"><h2>인증 코드를 입력해 주세요.</h2><p>{verificationEmail}로 보낸 6자리 코드입니다.</p></div><form onSubmit={onVerify}><label><span>인증 코드</span><div className="input-wrap"><Mail /><input inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={verificationCode} onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))} required /></div></label><button className="primary-button full" disabled={submitting || verificationCode.length !== 6}>{submitting ? "확인 중..." : "이메일 인증 완료"}</button><button className="text-button" type="button" disabled={submitting || resendWaitSeconds > 0} onClick={() => void sendVerificationCode().then(() => toast.success("인증 코드를 다시 보냈습니다.")).catch((error: unknown) => toast.error(error instanceof Error ? translateAuthErrorMessage(error.message, "재전송에 실패했습니다.") : "재전송에 실패했습니다."))}>{resendWaitSeconds > 0 ? `${resendWaitSeconds}초 후 재전송` : "인증 코드 다시 받기"}</button></form></>
           ) : (
             <>
               <div className="auth-tabs">{(["signin", "signup"] as Mode[]).map((item) => <button key={item} type="button" className={mode === item ? "active" : ""} onClick={() => setMode(item)}>{item === "signin" ? "로그인" : "회원가입"}</button>)}</div>

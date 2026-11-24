@@ -40,19 +40,22 @@ authRouter.post("/sign-in", async (context) => {
 });
 
 // 대회 심사·투표 기간처럼 로그인 없이 체험시킬 때만(GUEST_MODE=true) 열리는 임시 계정 발급 API입니다.
-// 개인정보가 없는 일회용 계정을 만들고 판매자 권한까지만 부여합니다(admin 권한은 절대 부여하지 않음).
+// 개인정보가 없는 일회용 계정을 만들고 기본은 판매자 권한만 부여합니다. admin은 GUEST_ADMIN_MODE=true일 때 role:"admin"으로 요청한 경우에만 부여합니다.
 authRouter.post("/guest", async (context) => {
   if (!config.guestMode) return context.json(apiFailure("GUEST_DISABLED", "체험 모드가 꺼져 있습니다."), 403);
+  const body = await context.req.json().catch(() => null) as { role?: unknown } | null;
+  const role = body?.role === "admin" ? "admin" : "seller";
+  if (role === "admin" && !config.guestAdminMode) return context.json(apiFailure("GUEST_ADMIN_DISABLED", "관리자 체험 로그인이 꺼져 있습니다(GUEST_ADMIN_MODE)."), 403);
   try {
     const email = `guest-${crypto.randomUUID()}@guest.example.com`;
     const password = `${crypto.randomUUID()}${crypto.randomUUID()}`;
     const admin = getAdminSupabase();
     const created = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { name: "체험 사용자" } });
     if (created.error || !created.data.user) return context.json(apiFailure("GUEST_FAILED", "체험 계정을 만들지 못했습니다. 잠시 후 다시 시도해 주세요."), 502);
-    await admin.from("profiles").upsert({ id: created.data.user.id, name: "체험 사용자", role: "seller" });
+    await admin.from("profiles").upsert({ id: created.data.user.id, name: role === "admin" ? "체험 관리자" : "체험 사용자", role });
     const { data, error } = await getAnonSupabase().auth.signInWithPassword({ email, password });
     if (error || !data.session) return context.json(apiFailure("GUEST_FAILED", "체험 계정으로 로그인하지 못했습니다."), 502);
-    return context.json(apiSuccess({ accessToken: data.session.access_token, user: userView(data.user, { name: "체험 사용자", role: "seller" }), guest: { email, password } }), 201);
+    return context.json(apiSuccess({ accessToken: data.session.access_token, user: userView(data.user, { name: role === "admin" ? "체험 관리자" : "체험 사용자", role }), guest: { email, password } }), 201);
   } catch { return context.json(apiFailure("SUPABASE_UNCONFIGURED", "Supabase 환경변수를 설정하세요."), 503); }
 });
 

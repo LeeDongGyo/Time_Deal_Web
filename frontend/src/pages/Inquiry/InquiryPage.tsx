@@ -7,7 +7,6 @@ import { Headphones, Store } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AppShell } from "@/shared/layout/AppShell";
 import { HelpCenterShell } from "@/shared/layout/HelpCenterShell";
-import { StatusBadge } from "@/shared/components/StatusBadge";
 import { authClient } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 const CATEGORIES = ["general", "order", "account", "product", "bulk"] as const;
@@ -20,7 +19,6 @@ export default function InquiryPage() {
   return <AppShell><HelpCenterShell>
     <div className="help-center-header inquiry-header">
       <div><h1>{isBulk ? "대량주문 문의" : "1:1 문의"}</h1><span>담당 유형에 맞게 문의를 접수하고 답변 상태를 확인하세요.</span></div>
-      <StatusBadge type="live">문의 API 연결</StatusBadge>
     </div>
     <div className="inquiry-layout">
       <div className="inquiry-choice">

@@ -19,6 +19,8 @@ export const config = {
   mobileSupabaseAnonKey: read("MOBILE_SUPABASE_ANON_KEY"),
   publicBackendUrl: read("PUBLIC_BACKEND_URL"),
   guestMode: read("GUEST_MODE") === "true",
+  // 테스트 전용: 체험 계정에 관리자 권한까지 허용합니다. 운영에서는 반드시 꺼 두세요.
+  guestAdminMode: read("GUEST_ADMIN_MODE") === "true",
   enableSampleData: read("ENABLE_SAMPLE_DATA") === "true" && nodeEnv !== "production",
   productImageBucket: read("PRODUCT_IMAGE_BUCKET") || "product-images",
   maxImageBytes: Number(read("MAX_IMAGE_BYTES") || 5_242_880),

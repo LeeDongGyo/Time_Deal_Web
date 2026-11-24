@@ -42,16 +42,16 @@ async function refreshSession() {
 const isTestRuntime = import.meta.env.MODE === "test";
 if (!isTestRuntime && typeof window !== "undefined" && typeof localStorage !== "undefined" && getAuthToken()) void refreshSession();
 else pending = false;
-// ── 체험 모드(VITE_GUEST_MODE=true): 로그인 없이도 임시 계정으로 자동 로그인해서 기존 기능을 그대로 쓰게 합니다. ──
+// ── 체험 모드(기본 켜짐, VITE_GUEST_MODE=false로 끔): 로그인 없이도 임시 계정으로 자동 로그인해서 기존 기능을 그대로 쓰게 합니다. ──
 const GUEST_KEY = "td_guest_cred";
-export const guestModeEnabled = import.meta.env.VITE_GUEST_MODE === "true";
+export const guestModeEnabled = import.meta.env.VITE_GUEST_MODE !== "false";
 export const isGuestEmail = (email?: string | null) => Boolean(email && email.endsWith("@guest.example.com"));
 type GuestCred = { email: string; password: string };
 const readGuestCred = (): GuestCred | null => { try { const raw = localStorage.getItem(GUEST_KEY); return raw ? JSON.parse(raw) as GuestCred : null; } catch { return null; } };
 let guestRefreshTimer: ReturnType<typeof setInterval> | null = null;
-async function createGuestSession(): Promise<boolean> {
+async function createGuestSession(role: "seller" | "admin" = "seller"): Promise<boolean> {
   try {
-    const response = await fetch(apiUrl("/auth/guest"), { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const response = await fetch(apiUrl("/auth/guest"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) });
     const payload = await response.json().catch(() => null) as { data?: { accessToken?: string; user?: AuthUser; guest?: GuestCred } } | null;
     if (!response.ok || !payload?.data?.accessToken || !payload.data.user) return false;
     try { if (payload.data.guest) localStorage.setItem(GUEST_KEY, JSON.stringify(payload.data.guest)); } catch { /* 저장소 차단 시 이번 세션만 유지 */ }
@@ -66,8 +66,8 @@ function startGuestRefresh() {
   guestRefreshTimer = setInterval(() => { const saved = readGuestCred(); if (saved && isGuestEmail(cachedSession?.user.email)) void authRequest("/sign-in", saved); }, 45 * 60 * 1000);
 }
 // 로그인 화면의 "체험 사용자로 시작" 버튼용: 체험 모드 환경변수와 상관없이 임시 계정을 만들어 바로 로그인합니다(백엔드 GUEST_MODE는 필요).
-export async function loginAsGuest(): Promise<boolean> {
-  const ok = await createGuestSession();
+export async function loginAsGuest(role: "seller" | "admin" = "seller"): Promise<boolean> {
+  const ok = await createGuestSession(role);
   if (ok) startGuestRefresh();
   return ok;
 }
