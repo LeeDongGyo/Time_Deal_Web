@@ -81,7 +81,9 @@ export default function CartPage() {
     }
     const result = await getCart();
     setLoading(false);
-    if (result.ok) setItems((result.data?.items ?? []) as unknown as CartItem[]);
+    // 서버 장바구니는 상품 이미지를 파일명(eggs_1.jpeg)으로 주므로 /images/ 경로로 맞춥니다.
+    const toImageUrl = (image: string) => /^https?:\/\//.test(image) || image.startsWith("/") ? image : `/images/${image}`;
+    if (result.ok) setItems(((result.data?.items ?? []) as unknown as CartItem[]).map((item) => item.product?.image ? { ...item, product: { ...item.product, image: toImageUrl(item.product.image) } } : item));
     else setError(result.error?.message ?? "장바구니를 불러오지 못했습니다.");
   };
 
