@@ -12,9 +12,18 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { translateAuthErrorMessage } from "../../auth-error.js";
 import { apiFailure, apiSuccess } from "../../http.js";
+import { isMobileSupabaseConfigured } from "../../config.js";
 import { getMobileSupabase } from "../../supabase.js";
 
 export const neighborhoodRouter = new Hono();
+
+// 모바일 Supabase 환경변수(MOBILE_SUPABASE_URL/ANON_KEY)가 없으면 500 대신, 목록은 빈 결과로·나머지는 안내 메시지로 응답합니다.
+neighborhoodRouter.use("/neighborhood/*", async (context, next) => {
+  if (isMobileSupabaseConfigured()) return next();
+  if (context.req.method === "GET" && context.req.path.endsWith("/neighborhood/neighborhoods")) return context.json(apiSuccess({ neighborhoods: [] }));
+  if (context.req.method === "GET" && context.req.path.endsWith("/neighborhood/deals")) return context.json(apiSuccess({ deals: [] }));
+  return context.json(apiFailure("NEIGHBORHOOD_UNAVAILABLE", "동네 기능이 아직 연결되지 않았습니다. 잠시 후 다시 시도해 주세요."), 503);
+});
 
 const requireMobileAuth: MiddlewareHandler = async (context, next) => {
   const token = context.req.header("X-Mobile-Token");
